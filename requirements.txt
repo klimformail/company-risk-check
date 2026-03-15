@@ -1,0 +1,8 @@
+Flask
+requests
+beautifulsoup4
+pandas
+openpyxl
+lxml
+python-dotenv
+gunicorn
