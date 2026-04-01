@@ -72,6 +72,9 @@ def format_risk_value(param_name, value):
         return value
     param_lower = param_name.lower()
     if isinstance(value, (int, float)):
+        # Добавляем % для динамических показателей
+        if "динамика" in param_lower:
+            return f"{value:.1f}%"
         if any(kw in param_lower for kw in ('рентабельность', 'доля', 'рост', 'темп', 'маржинальность')):
             return f"{value:.1f}%"
         if any(kw in param_lower for kw in ('оборачиваемость', 'дн', 'цикл', 'период')):
@@ -140,8 +143,8 @@ def generate_risk_comment(param_name, value, group=None):
         return "Нехватка собственных средств — риск банкротства."
     if "динамика операционного цикла" in param_lower:
         return "Цикл производства затягивается — возможно, задерживают оплату."
-    if "оборачиваемость дебиторской задолженности" in param_lower:
-        return "Клиенты долго платят — компании не хватает денег на зарплату."
+    if "оборачиваемость дебиторской задолженности" in param_lower or "оборачиваемость дебиторки" in param_lower:
+        return "Клиенты долго платят — компании может не хватать денег на зарплату."
     if "оборачиваемость запасов" in param_lower:
         return "Товары залёживаются — компания теряет прибыль."
     if "оборачиваемость кредиторской задолженности" in param_lower or "оборачиваемость кредиторки" in param_lower:
@@ -152,8 +155,6 @@ def generate_risk_comment(param_name, value, group=None):
         return "Низкая ликвидность — возможны задержки зарплаты."
     if "чп / дельта нераспред. прибыли" in param_lower:
         return "Прибыль расходится не по назначению — возможны махинации."
-    if "ebit / проценты" in param_lower:
-        return "Компания с трудом обслуживает проценты по кредитам — финансовая нагрузка высока."
     if "доля финансовых вложений" in param_lower:
         return "Слишком много денег вложено в ценные бумаги, а не в развитие — возможны спекуляции."
     if "рентабельность по чистой прибыли" in param_lower:
@@ -162,6 +163,9 @@ def generate_risk_comment(param_name, value, group=None):
     if "ebit / проценты" in param_lower or "ebit/проценты" in param_lower:
         val = value if isinstance(value, (int, float)) else 0
         return f"Прибыль компании едва покрывает проценты по кредитам ({val:.2f}) — высокий риск дефолта и проблем с выплатами."
+    if "динамика ebit" in param_lower:
+        val = value if isinstance(value, (int, float)) else 0
+        return f"Операционная прибыль снижается на {val:.1f}% — компания теряет доходность."
     
     # Деловая активность
     if "возраст компании" in param_lower:
