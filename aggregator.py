@@ -32,6 +32,9 @@ ENABLE_BANNER = os.environ.get("ENABLE_BANNER", "1").lower() in ("1", "true", "y
 print(f"DEBUG: ENABLE_LLM = {ENABLE_LLM}")
 print(f"DEBUG: ENABLE_BANNER = {ENABLE_BANNER}")
 
+ENABLE_LOGGING = os.environ.get("ENABLE_LOGGING", "1").lower() in ("1", "true", "yes")
+print(f"DEBUG: ENABLE_LOGGING = {ENABLE_LOGGING}")
+
 # =============================================
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # =============================================
@@ -209,20 +212,24 @@ def generate_risk_comment(param_name, value, group=None):
 # =============================================
 
 def send_check_log(log_data):
-    """Отправляет лог проверки в Google Sheets."""
-    print(f"DEBUG: отправка лога с полями: {list(log_data.keys())}")
-    if 'comment_1' in log_data:
-        print(f"DEBUG: comment_1: {log_data['comment_1'][:100]}")
-    if not GOOGLE_SCRIPT_URL:
-        return
-    try:
-        response = requests.post(GOOGLE_SCRIPT_URL, json=log_data, timeout=10)
-        response.raise_for_status()
-        print("✅ Лог проверки отправлен в Google Sheets")
-    except Exception as e:
-        print(f"⚠️ Ошибка отправки лога проверки: {e}")
+        if not ENABLE_LOGGING:
+            return  
+        """Отправляет лог проверки в Google Sheets."""
+        print(f"DEBUG: отправка лога с полями: {list(log_data.keys())}")
+        if 'comment_1' in log_data:
+            print(f"DEBUG: comment_1: {log_data['comment_1'][:100]}")
+        if not GOOGLE_SCRIPT_URL:
+            return
+        try:
+            response = requests.post(GOOGLE_SCRIPT_URL, json=log_data, timeout=10)
+            response.raise_for_status()
+            print("✅ Лог проверки отправлен в Google Sheets")
+        except Exception as e:
+            print(f"⚠️ Ошибка отправки лога проверки: {e}")
 
 def send_banner_log(session_id, action, report_number):
+    if not ENABLE_LOGGING:
+        return
     """Отправляет действие баннера в Google Sheets."""
     if not GOOGLE_SCRIPT_URL:
         return
@@ -631,6 +638,8 @@ def check_company(inn, session_id, report_number):
     }
 
 def send_visit_log(session_id, referrer, user_agent):
+    if not ENABLE_LOGGING:
+        return
     """Отправляет событие визита в Google Sheets."""
     if not GOOGLE_SCRIPT_URL:
         return
