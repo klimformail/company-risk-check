@@ -79,7 +79,7 @@ def format_risk_value(param_name, value):
             return f"{value:.1f}%"
         if any(kw in param_lower for kw in ('оборачиваемость', 'дн', 'цикл', 'период')):
             return f"{int(round(value))} дн."
-        if any(kw in param_lower for kw in ('коэффициент', 'ликвидность', 'независимости', 'соотношение')):
+        if any(kw in param_lower for kw in ('коэффициент', 'ликвидность','ликвидности','независимости', 'соотношение')):
             return f"{value:.2f}"
         if value > 1000:
             return f"{int(value):,}".replace(",", " ")
@@ -98,9 +98,9 @@ def generate_risk_comment(param_name, value, group=None):
 
     # Критические
     if "ликвидац" in param_lower:
-        return "Компания в процессе ликвидации — оформление и зарплата под вопросом."
+        return "Компания в процессе ликвидации — лучше поискать другое место."
     if "банкротств" in param_lower:
-        return "Банкротство — лучше поискать другое место, здесь могут задерживать зарплату."
+        return "Банкротство — лучше поискать другое место."
     if "недостоверные сведения по адресу" in param_lower:
         return "Юридический адрес недостоверен — возможны проблемы с оформлением."
     if "недостоверные сведения по директору" in param_lower or "недостоверные сведения по учредителю" in param_lower:
@@ -149,8 +149,9 @@ def generate_risk_comment(param_name, value, group=None):
         return "Товары залёживаются — компания теряет прибыль."
     if "оборачиваемость кредиторской задолженности" in param_lower or "оборачиваемость кредиторки" in param_lower:
         return "Компания задерживает оплату поставщикам — с сотрудниками может быть так же."
-    if "общий долг / ebit" in param_lower:
-        return "Долги сильно превышают прибыль — высокий риск дефолта."
+    if "общий долг / ebit" in param_lower or "общий долг/ebit" in param_lower:
+        val = value if isinstance(value, (int, float)) else 0
+        return f"Долги компании превышают её годовую прибыль в {val:.1f} раз — критическая долговая нагрузка, высокий риск банкротства."
     if "коэффициент общей ликвидности" in param_lower:
         return "Низкая ликвидность — возможны задержки зарплаты."
     if "чп / дельта нераспред. прибыли" in param_lower:
@@ -549,10 +550,10 @@ def check_company(inn, session_id, report_number):
 
     total_score = 0.5 * fin_norm + 0.1 * bus_norm + 0.1 * legal_norm + 0.3 * reviews_score
 
-    if total_score >= 65:
+    if total_score >= 75:
         risk_level = 'low'
         risk_text = 'Риски отсутствуют'
-    elif total_score >= 35:
+    elif total_score >= 50:
         risk_level = 'medium'
         risk_text = 'Средние риски'
     else:
