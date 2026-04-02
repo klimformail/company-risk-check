@@ -77,7 +77,7 @@ def format_risk_value(param_name, value):
             return f"{value:.1f}%"
         if any(kw in param_lower for kw in ('рентабельность', 'доля', 'рост', 'темп', 'маржинальность')):
             return f"{value:.1f}%"
-        if any(kw in param_lower for kw in ('оборачиваемость', 'дн', 'цикл', 'период')):
+        if any(kw in param_lower for kw in ('оборачиваемость', 'цикл', 'период')):
             return f"{int(round(value))} дн."
         if any(kw in param_lower for kw in ('коэффициент', 'ликвидность','ликвидности','независимости', 'соотношение')):
             return f"{value:.2f}"
