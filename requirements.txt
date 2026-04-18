@@ -1,9 +1,2 @@
 Flask
-requests
-beautifulsoup4
-pandas
-openpyxl
-lxml
-python-dotenv
-gigachat==0.2.0
 gunicorn
