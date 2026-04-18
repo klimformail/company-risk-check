@@ -32,9 +32,6 @@ ENABLE_BANNER = os.environ.get("ENABLE_BANNER", "1").lower() in ("1", "true", "y
 print(f"DEBUG: ENABLE_LLM = {ENABLE_LLM}")
 print(f"DEBUG: ENABLE_BANNER = {ENABLE_BANNER}")
 
-ENABLE_LOGGING = os.environ.get("ENABLE_LOGGING", "1").lower() in ("1", "true", "yes")
-print(f"DEBUG: ENABLE_LOGGING = {ENABLE_LOGGING}")
-
 # =============================================
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # =============================================
@@ -75,14 +72,11 @@ def format_risk_value(param_name, value):
         return value
     param_lower = param_name.lower()
     if isinstance(value, (int, float)):
-        # Добавляем % для динамических показателей
-        if "динамика" in param_lower:
-            return f"{value:.1f}%"
         if any(kw in param_lower for kw in ('рентабельность', 'доля', 'рост', 'темп', 'маржинальность')):
             return f"{value:.1f}%"
-        if any(kw in param_lower for kw in ('оборачиваемость', 'цикл', 'период')):
+        if any(kw in param_lower for kw in ('оборачиваемость', 'дн', 'цикл', 'период')):
             return f"{int(round(value))} дн."
-        if any(kw in param_lower for kw in ('коэффициент', 'ликвидность','ликвидности','независимости', 'соотношение')):
+        if any(kw in param_lower for kw in ('коэффициент', 'ликвидность', 'независимости', 'соотношение')):
             return f"{value:.2f}"
         if value > 1000:
             return f"{int(value):,}".replace(",", " ")
@@ -101,9 +95,9 @@ def generate_risk_comment(param_name, value, group=None):
 
     # Критические
     if "ликвидац" in param_lower:
-        return "Компания в процессе ликвидации — лучше поискать другое место."
+        return "Компания в процессе ликвидации — оформление и зарплата под вопросом."
     if "банкротств" in param_lower:
-        return "Банкротство — лучше поискать другое место."
+        return "Банкротство — лучше поискать другое место, здесь могут задерживать зарплату."
     if "недостоверные сведения по адресу" in param_lower:
         return "Юридический адрес недостоверен — возможны проблемы с оформлением."
     if "недостоверные сведения по директору" in param_lower or "недостоверные сведения по учредителю" in param_lower:
@@ -146,19 +140,20 @@ def generate_risk_comment(param_name, value, group=None):
         return "Нехватка собственных средств — риск банкротства."
     if "динамика операционного цикла" in param_lower:
         return "Цикл производства затягивается — возможно, задерживают оплату."
-    if "оборачиваемость дебиторской задолженности" in param_lower or "оборачиваемость дебиторки" in param_lower:
-        return "Клиенты долго платят — компании может не хватать денег на зарплату."
+    if "оборачиваемость дебиторской задолженности" in param_lower:
+        return "Клиенты долго платят — компании не хватает денег на зарплату."
     if "оборачиваемость запасов" in param_lower:
         return "Товары залёживаются — компания теряет прибыль."
     if "оборачиваемость кредиторской задолженности" in param_lower or "оборачиваемость кредиторки" in param_lower:
         return "Компания задерживает оплату поставщикам — с сотрудниками может быть так же."
-    if "общий долг / ebit" in param_lower or "общий долг/ebit" in param_lower:
-        val = value if isinstance(value, (int, float)) else 0
-        return f"Долги компании превышают её годовую прибыль в {val:.1f} раз — критическая долговая нагрузка, высокий риск банкротства."
+    if "общий долг / ebit" in param_lower:
+        return "Долги сильно превышают прибыль — высокий риск дефолта."
     if "коэффициент общей ликвидности" in param_lower:
         return "Низкая ликвидность — возможны задержки зарплаты."
     if "чп / дельта нераспред. прибыли" in param_lower:
         return "Прибыль расходится не по назначению — возможны махинации."
+    if "ebit / проценты" in param_lower:
+        return "Компания с трудом обслуживает проценты по кредитам — финансовая нагрузка высока."
     if "доля финансовых вложений" in param_lower:
         return "Слишком много денег вложено в ценные бумаги, а не в развитие — возможны спекуляции."
     if "рентабельность по чистой прибыли" in param_lower:
@@ -167,9 +162,6 @@ def generate_risk_comment(param_name, value, group=None):
     if "ebit / проценты" in param_lower or "ebit/проценты" in param_lower:
         val = value if isinstance(value, (int, float)) else 0
         return f"Прибыль компании едва покрывает проценты по кредитам ({val:.2f}) — высокий риск дефолта и проблем с выплатами."
-    if "динамика ebit" in param_lower:
-        val = value if isinstance(value, (int, float)) else 0
-        return f"Операционная прибыль снижается на {val:.1f}% — компания теряет доходность."
     
     # Деловая активность
     if "возраст компании" in param_lower:
@@ -212,24 +204,20 @@ def generate_risk_comment(param_name, value, group=None):
 # =============================================
 
 def send_check_log(log_data):
-        if not ENABLE_LOGGING:
-            return  
-        """Отправляет лог проверки в Google Sheets."""
-        print(f"DEBUG: отправка лога с полями: {list(log_data.keys())}")
-        if 'comment_1' in log_data:
-            print(f"DEBUG: comment_1: {log_data['comment_1'][:100]}")
-        if not GOOGLE_SCRIPT_URL:
-            return
-        try:
-            response = requests.post(GOOGLE_SCRIPT_URL, json=log_data, timeout=10)
-            response.raise_for_status()
-            print("✅ Лог проверки отправлен в Google Sheets")
-        except Exception as e:
-            print(f"⚠️ Ошибка отправки лога проверки: {e}")
+    """Отправляет лог проверки в Google Sheets."""
+    print(f"DEBUG: отправка лога с полями: {list(log_data.keys())}")
+    if 'comment_1' in log_data:
+        print(f"DEBUG: comment_1: {log_data['comment_1'][:100]}")
+    if not GOOGLE_SCRIPT_URL:
+        return
+    try:
+        response = requests.post(GOOGLE_SCRIPT_URL, json=log_data, timeout=10)
+        response.raise_for_status()
+        print("✅ Лог проверки отправлен в Google Sheets")
+    except Exception as e:
+        print(f"⚠️ Ошибка отправки лога проверки: {e}")
 
 def send_banner_log(session_id, action, report_number):
-    if not ENABLE_LOGGING:
-        return
     """Отправляет действие баннера в Google Sheets."""
     if not GOOGLE_SCRIPT_URL:
         return
@@ -557,10 +545,10 @@ def check_company(inn, session_id, report_number):
 
     total_score = 0.5 * fin_norm + 0.1 * bus_norm + 0.1 * legal_norm + 0.3 * reviews_score
 
-    if total_score >= 75:
+    if total_score >= 65:
         risk_level = 'low'
         risk_text = 'Риски отсутствуют'
-    elif total_score >= 50:
+    elif total_score >= 35:
         risk_level = 'medium'
         risk_text = 'Средние риски'
     else:
@@ -638,8 +626,6 @@ def check_company(inn, session_id, report_number):
     }
 
 def send_visit_log(session_id, referrer, user_agent):
-    if not ENABLE_LOGGING:
-        return
     """Отправляет событие визита в Google Sheets."""
     if not GOOGLE_SCRIPT_URL:
         return
