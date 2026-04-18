@@ -70,5 +70,10 @@ def visit():
     send_visit_log(session_id, referrer, user_agent)
     return jsonify({'status': 'ok'})
 
+
+@app.route('/health')
+def health():
+    return jsonify({'status': 'ok', 'message': 'Сервер работает'})
+
 if __name__ == '__main__':
     app.run(debug=True)
