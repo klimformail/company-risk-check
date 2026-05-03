@@ -428,21 +428,71 @@
                 </div>
             `;
 
-            // Параметры с высоким риском
+            // Параметры с высоким риском (с возможностью сворачивания для крупнейших)
             let riskParamsHtml = '';
             if (data.risk_params && data.risk_params.length) {
-                riskParamsHtml = `
-                    <div class="mt-6">
-                        <h3 class="font-semibold text-slate-800 mb-3">Параметры с высоким риском</h3>
-                        ${data.risk_params.map(p => `
-                            <div class="risk-param-item">
-                                <div class="risk-param-name">${p.name}</div>
-                                <div class="risk-param-value">${p.value}</div>
-                                <div class="risk-param-comment">${p.comment || ''}</div>
+                if (data.is_largest) {
+                    // Разделяем параметры на финансовые и остальные
+                    const financialParams = [];
+                    const otherParams = [];
+                    data.risk_params.forEach(p => {
+                        if (p.group === 'Финансовое состояние') {
+                            financialParams.push(p);
+                        } else {
+                            otherParams.push(p);
+                        }
+                    });
+                    
+                    let financialHtml = '';
+                    if (financialParams.length) {
+                        financialHtml = `
+                            <details class="mt-4">
+                                <summary class="cursor-pointer text-sm font-semibold text-slate-600">📊 Финансовые параметры (справочно)</summary>
+                                <div class="mt-2 space-y-2">
+                                    ${financialParams.map(p => `
+                                        <div class="risk-param-item">
+                                            <div class="risk-param-name">${p.name}</div>
+                                            <div class="risk-param-value">${p.value}</div>
+                                            <div class="risk-param-comment">${p.comment || ''}</div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </details>
+                        `;
+                    }
+                    
+                    let otherHtml = '';
+                    if (otherParams.length) {
+                        otherHtml = `
+                            <div class="mt-6">
+                                <h3 class="font-semibold text-slate-800 mb-3">Прочие параметры с высоким риском</h3>
+                                ${otherParams.map(p => `
+                                    <div class="risk-param-item">
+                                        <div class="risk-param-name">${p.name}</div>
+                                        <div class="risk-param-value">${p.value}</div>
+                                        <div class="risk-param-comment">${p.comment || ''}</div>
+                                    </div>
+                                `).join('')}
                             </div>
-                        `).join('')}
-                    </div>
-                `;
+                        `;
+                    }
+                    
+                    riskParamsHtml = financialHtml + otherHtml;
+                } else {
+                    // Обычное отображение для некрупнейших компаний
+                    riskParamsHtml = `
+                        <div class="mt-6">
+                            <h3 class="font-semibold text-slate-800 mb-3">Параметры с высоким риском</h3>
+                            ${data.risk_params.map(p => `
+                                <div class="risk-param-item">
+                                    <div class="risk-param-name">${p.name}</div>
+                                    <div class="risk-param-value">${p.value}</div>
+                                    <div class="risk-param-comment">${p.comment || ''}</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    `;
+                }
             }
 
             // Сообщение об отзывах (если есть)

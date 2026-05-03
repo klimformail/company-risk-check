@@ -5,7 +5,9 @@ import re
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Any, Optional
 from urllib.parse import urlparse
+from datetime import datetime
 
+now = datetime.now()
 
 
 
@@ -169,6 +171,8 @@ def critical_check(inn: str) -> Tuple[str, List[str], Dict[str, Any], dict, bool
     
     is_ip = (len(inn) == 12)
     
+
+
     if is_ip:
         print("Обнаружен ИП, запрос /entrepreneur...")
         ip_resp = fetch_data("entrepreneur", {"inn": inn})
@@ -195,14 +199,25 @@ def critical_check(inn: str) -> Tuple[str, List[str], Dict[str, Any], dict, bool
             "ЮрАдрес": {"АдресРФ": ip_data.get("НасПункт", ""), "Недост": False, "МассАдрес": []},
             "ОКВЭД": ip_data.get("ОКВЭД", {}),
         }
+        is_nonprofit = False
         is_largest = False
         finances = {}
     else:
         company_resp = fetch_data("company", {"inn": inn})
         if not company_resp:
             raise Exception("Не удалось получить данные компании – проверьте ИНН или доступ к API.")
-        company = company_resp.get("data", {})
         
+        
+        company = company_resp.get("data", {})
+
+        okopf = company.get("ОКОПФ", {})
+        okopf_code = okopf.get("Код", "")
+        is_nonprofit = (okopf_code.startswith('7') or okopf_code.startswith('2'))
+        if is_nonprofit: print("Обнаружена некоммерческая организация (ОКОПФ начинается с 2 или 7). Финансовая отчётность не проверяется.")
+
+
+
+
         fin_resp = fetch_data("finances", {"inn": inn, "extended": "true"})
         finances = fin_resp.get("data", {}) if fin_resp else {}
         
@@ -294,13 +309,15 @@ def critical_check(inn: str) -> Tuple[str, List[str], Dict[str, Any], dict, bool
         debt_ratio = total_debt / charter_capital
     else:
         debt_ratio = float('inf') if total_debt > 0 else 0
-    critical_flags["Существенные исполнительные производства"] = debt_ratio > 0.05
+    critical_flags["Существенные исполнительные производства"] = debt_ratio > 1
     
     # Отсутствие отчётности
     has_recent = any(str(y) in finances for y in (2024, 2025)) if not is_ip else False
     if is_ip:
         no_recent = False
     elif is_largest:
+        no_recent = False
+    elif is_nonprofit:
         no_recent = False
     else:
         no_recent = not has_recent
@@ -320,6 +337,12 @@ def critical_check(inn: str) -> Tuple[str, List[str], Dict[str, Any], dict, bool
                 one_day = True
     critical_flags["Признак 'однодневной' организации"] = one_day
     
+    status_code = company.get("Статус", {}).get("Код")
+    if status_code == "000":
+        critical_flags["Статус ликвидации"] = True
+        print("DEBUG: обнаружена ликвидация по коду 000")
+
+
     critical_true = [name for name, val in critical_flags.items() if val]
     status = "critical" if critical_true else "ok"
     
@@ -332,6 +355,7 @@ def critical_check(inn: str) -> Tuple[str, List[str], Dict[str, Any], dict, bool
         "finances": finances,
         "is_largest": is_largest,
         "is_ip": is_ip,
+        'is_nonprofit': is_nonprofit,
         "charter_capital": charter_capital,
         "total_enforcements_debt": total_debt,
         "has_recent_finance": has_recent,
@@ -1115,19 +1139,23 @@ def calculate_score(data: Dict[str, Any]) -> Tuple[Dict[str, float], List[Dict[s
     licenses = company.get("Лиценз", [])
     
     need_license = okved_main in licensed_okved
-    
-    now = datetime.now()
     has_valid_license = False
+    
     for lic in licenses:
+        # Если у лицензии нет даты окончания, считаем её действующей
         expiry = lic.get("ДатаОконч")
-        if expiry:
-            try:
-                exp_date = datetime.strptime(expiry, "%Y-%m-%d")
-                if exp_date > now:
-                    has_valid_license = True
-                    break
-            except:
-                pass
+        if expiry is None:
+            has_valid_license = True
+            break
+        try:
+            exp_date = datetime.strptime(expiry, "%Y-%m-%d")
+            if exp_date > now:
+                has_valid_license = True
+                break
+        except:
+            # Если дата некорректная, тоже считаем лицензию действующей
+            has_valid_license = True
+            break
     
     if need_license and not has_valid_license:
         score = 0
@@ -1135,6 +1163,7 @@ def calculate_score(data: Dict[str, Any]) -> Tuple[Dict[str, float], List[Dict[s
     else:
         score = 25
         val = "лицензия есть или не требуется"
+
     legal_scores.append(score)
     details.append(("Лицензии", val, score))
     if score == 0:

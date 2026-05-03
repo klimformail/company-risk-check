@@ -71,6 +71,8 @@ def parse_review_date(date_str):
 def format_risk_value(param_name, value):
     if value is None:
         return "нет данных"
+    if isinstance(value, bool):
+        return "были изменения" if value else "нет изменений"
     if isinstance(value, str):
         return value
     param_lower = param_name.lower()
@@ -178,12 +180,15 @@ def generate_risk_comment(param_name, value, group=None):
         return "Нет опыта госзакупок — возможно, не хватает опыта."
     if "история проверок" in param_lower and "нарушения" in value_str:
         return "Были нарушения при проверках — к компании есть вопросы."
-    if "история изменений компании" in param_lower and "изменения" in value_str:
-        return "Частая смена руководителей/учредителей — нестабильность."
+    if "изменения за 12 мес" in param_lower:
+        if value:
+            return "За последние 12 месяцев происходили изменения в руководстве или составе учредителей — это может говорить о нестабильности."
+        else:
+            return "За последние 12 месяцев не было изменений в руководстве или составе учредителей — компания стабильна."
 
     # Правовые
     if "арбитражные дела" in param_lower:
-        return "Много судов — компания постоянно с кем-то судится."
+        return "Значительне число текущих судебных дел - фактор нестабильности компании"
     if "исполнительные производства" in param_lower and not "существенные" in param_lower:
         return "Есть долги по исполнительным производствам."
     if "налоговая задолженность" in param_lower:
@@ -516,6 +521,7 @@ def check_company(inn, session_id, report_number):
             'message': 'Обнаружены критические риски',
             'company_name': name_variants,
             'is_largest': is_largest,
+            'is_nonprofit': data.get('is_nonprofit', False),
             'report_number': report_number,
             'enable_banner': ENABLE_BANNER
         }
@@ -526,7 +532,10 @@ def check_company(inn, session_id, report_number):
     original_fin_score = groups_scores_ofdata['Финансовое состояние']
     if is_largest:
         groups_scores_ofdata['Финансовое состояние'] = 100
-        large_company_message = "Компания относится к крупнейшим, влияние финансовых показателей на риски работы в ней незначительны"
+        large_company_message = "Компания относится к крупнейшим, финансовые показатели не влияют на риски работы в ней"
+    elif data.get('is_nonprofit'):
+        groups_scores_ofdata['Финансовое состояние'] = 100
+        large_company_message = "Компания является некоммерческой организацией, финансовая отчётность не учитывается при оценке рисков"
     else:
         large_company_message = None
 
@@ -634,7 +643,9 @@ def check_company(inn, session_id, report_number):
         'large_company_message': large_company_message,
         'extra': extra,
         'report_number': report_number,
-        'enable_banner': ENABLE_BANNER  
+        'enable_banner': ENABLE_BANNER,
+        'is_largest': is_largest,
+        'is_nonprofit': data.get('is_nonprofit', False)
     }
 
 def send_visit_log(session_id, referrer, user_agent):
