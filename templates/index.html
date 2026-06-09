@@ -508,83 +508,40 @@
             // LLM-анализ отзывов (если есть)
             let llmSummaryHtml = '';
             if (data.reviews_agg && data.reviews_agg.llm_summary) {
-                const summary = data.reviews_agg.llm_summary;
-                
-                // Более понятные названия аспектов (исключаем "честность компании" из основного списка)
-                const aspectTranslations = {
-                    'Соблюдение ТК': 'оформление по ТК',
-                    'Белая з/п': 'белая зарплата',
-                    'Штрафы': 'штрафы и KPI',
-                    'Задержки з/п': 'задержки зарплаты',
-                    'Льготы': 'льготы (ДМС, соцпакет)'
-                };
-                
-                // Специальная обработка для "честность компании" – будем учитывать отдельно, но не выводим в списке
-                let honestyNote = '';
-                if (summary['Коррупция и мошенничество'] !== undefined && summary['Коррупция и мошенничество'] < -0.3) {
-                    honestyNote = ' Есть жалобы на нечестные практики (обман клиентов, «серые» схемы).';
-                }
-                
-                // Категории
-                let positives = [];
-                let negatives = [];
-                let neutrals = [];
-                
-                for (const [aspect, value] of Object.entries(summary)) {
-                    // Пропускаем "Коррупция и мошенничество" и "Общая тональность" из списков
-                    if (aspect === 'Коррупция и мошенничество' || aspect === 'Общая тональность') continue;
-                    const name = aspectTranslations[aspect] || aspect;
-                    if (value > 0.3) positives.push(name);
-                    else if (value < -0.3) negatives.push(name);
-                    else neutrals.push(name);
-                }
-                
-                // Формируем общий тон на основе "Общая тональность"
-                let generalTone = '';
-                if (summary['Общая тональность'] !== undefined) {
-                    const tone = summary['Общая тональность'];
-                    if (tone > 0.3) generalTone = 'В целом отзывы положительные. ';
-                    else if (tone < -0.3) generalTone = 'В целом отзывы негативные. ';
-                    else generalTone = 'Отзывы смешанные. ';
-                }
-                
-                // Описание
-                let description = '';
-                if (positives.length) description += `✅ Сотрудники отмечают: ${positives.join(', ')}. `;
-                if (negatives.length) description += `⚠️ Часто жалуются на: ${negatives.join(', ')}. `;
-                if (honestyNote) description += honestyNote;
-                if (neutrals.length && neutrals.length < 4) description += `😐 В отзывах не упоминаются: ${neutrals.join(', ')}. `;
-                
-                // Рекомендация – более конкретная, убираем "честность компании" и "общее впечатление"
-                let recommendation = '';
-                if (negatives.length > 0) {
-                    recommendation = 'Рекомендуем на собеседовании уточнить: ';
-                    if (negatives.includes('штрафы и KPI')) {
-                        recommendation += 'как именно оценивается выполнение KPI, есть ли штрафы, и не приходится ли обманывать клиентов для достижения показателей; ';
-                    }
-                    if (negatives.includes('задержки зарплаты')) {
-                        recommendation += 'как часто бывают задержки зарплаты и есть ли система авансирования; ';
-                    }
-                    if (negatives.includes('белая зарплата')) {
-                        recommendation += 'вся ли зарплата официальная, есть ли «серая» часть; ';
-                    }
-                    if (negatives.includes('оформление по ТК')) {
-                        recommendation += 'оформление по ТК или ГПХ, оплачиваются ли больничные и отпуска; ';
-                    }
-                    if (honestyNote) {
-                        recommendation += 'особое внимание уделите прозрачности условий работы и наличию «серых» схем. ';
-                    }
-                    if (recommendation === 'Рекомендуем на собеседовании уточнить: ') {
-                        recommendation = 'Рекомендуем внимательно изучить условия работы на собеседовании.';
-                    }
+                const s = data.reviews_agg.llm_summary;
+                const tone = s['Общая тональность'];
+                const delay = s['Задержки з/п'];
+                const benefits = s['Соцпакет'] ?? s['Льготы'];
+
+                const isBad = (val) => val < -0.3;
+                const isGood = (val) => val > 0.3;
+
+                // Формируем основную мысль (без перечисления проблем в выводе)
+                let summary = '';
+                if (isBad(tone)) {
+                    summary = 'Сотрудники в основном недовольны.';
+                } else if (isGood(tone)) {
+                    summary = 'Сотрудники по большей части довольны.';
                 } else {
-                    recommendation = 'Сотрудники в целом довольны. Рекомендуем уточнить детали, важные лично для вас.';
+                    summary = 'Отзывы неоднозначные.';
                 }
-                
+
+                // Рекомендация – без дублирования, конкретная
+                let recommendation = '';
+                if (isBad(delay)) {
+                    recommendation = '⚠️ Есть риск задержек зарплаты. Рекомендуем уточнить этот момент на собеседовании.';
+                } else if (isBad(benefits)) {
+                    recommendation = 'Соцпакет отсутствует или слабый. Уточните, на что можно рассчитывать.';
+                } else if (isBad(tone)) {
+                    recommendation = 'Сотрудники недовольны, но конкретика не ясна. Стоит задать вопросы о рабочих условиях.';
+                } else {
+                    recommendation = 'В целом неплохо. Уточните детали, важные лично для вас.';
+                }
+
                 llmSummaryHtml = `
                     <div class="mt-6 p-4 bg-primary-50 text-primary-800 rounded-xl text-sm">
                         <h4 class="font-bold mb-2">📊 Анализ последних отзывов (ИИ)</h4>
-                        <p>${generalTone}${description}</p>
+                        <p>${summary}</p>
                         <p class="mt-2 text-primary-700"><strong>Рекомендация:</strong> ${recommendation}</p>
                     </div>
                 `;

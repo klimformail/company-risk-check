@@ -35,6 +35,12 @@ print(f"DEBUG: ENABLE_BANNER = {ENABLE_BANNER}")
 ENABLE_LOGGING = os.environ.get("ENABLE_LOGGING", "1").lower() in ("1", "true", "yes")
 print(f"DEBUG: ENABLE_LOGGING = {ENABLE_LOGGING}")
 
+ENABLE_ROBERTA = os.environ.get("ENABLE_ROBERTA", "0").lower() in ("1", "true", "yes")
+print(f"DEBUG: ENABLE_ROBERTA = {ENABLE_ROBERTA}")
+
+MAX_REVIEWS_FOR_ROBERTA = int(os.environ.get("MAX_REVIEWS_FOR_ROBERTA", "20"))
+print(f"DEBUG: MAX_REVIEWS_FOR_ROBERTA = {MAX_REVIEWS_FOR_ROBERTA}")
+
 # =============================================
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # =============================================
@@ -374,62 +380,91 @@ def aggregate_reviews(inn, name_variants):
     final_count = reviews_agg['total_count']
     final_last_date = max(reviews_agg['last_dates']) if reviews_agg['last_dates'] else None
 
-    if reviews_agg and reviews_agg.get('reviews'):
-        print(f"DEBUG: будет отправлено {len(reviews_agg['reviews'])} комментариев в лог")
-        for idx, rev in enumerate(reviews_agg['reviews'][:3], 1):
-            print(f"DEBUG: comment_{idx}: {rev.get('text', '')[:100]}")
-    else:
-        print("DEBUG: reviews_agg['reviews'] пуст или отсутствует")
+    #if reviews_agg and reviews_agg.get('reviews'):
+    #    print(f"DEBUG: будет отправлено {len(reviews_agg['reviews'])} комментариев в лог")
+    #    for idx, rev in enumerate(reviews_agg['reviews'][:3], 1):
+    #        print(f"DEBUG: comment_{idx}: {rev.get('text', '')[:100]}")
+    #else:
+    #    print("DEBUG: reviews_agg['reviews'] пуст или отсутствует")
 
     # распарсим даты для всех отзывов (добавим временное поле)
     for rev in reviews_agg['all_reviews']:
         dt = parse_review_date(rev.get('date', ''))
         rev['_date_dt'] = dt if dt else datetime.min
 
-    # Сортируем по распарсенной дате (новые сверху)
-    sorted_reviews = sorted(reviews_agg['all_reviews'], key=lambda r: r['_date_dt'], reverse=True)[:10]
-
-
-    # Ограничиваем количество отзывов для LLM (например, 3–5)
+    # Сортируем все отзывы от новых к старым
+    all_sorted = sorted(reviews_agg['all_reviews'], key=lambda r: r['_date_dt'], reverse=True)
+    
+    # Ограничиваем количество для LLM (GigaChat) – 5 отзывов
     MAX_LLM_REVIEWS = 5
-    llm_reviews = sorted_reviews[:MAX_LLM_REVIEWS]
+    # Для RoBERTa – настраиваемое количество
+    MAX_ROBERTA_REVIEWS = int(os.environ.get("MAX_REVIEWS_FOR_ROBERTA", "20"))
+    
+    reviews_for_llm = all_sorted[:MAX_LLM_REVIEWS]
+    reviews_for_roberta = all_sorted[:MAX_ROBERTA_REVIEWS]
 
-    # LLM анализ
     reviews_llm_summary = None
-    if ENABLE_LLM and sorted_reviews:
-        reviews_for_llm = []
-        for rev in sorted_reviews:
+
+    if ENABLE_ROBERTA and reviews_for_roberta:
+        formatted = []
+        for rev in reviews_for_roberta:
             if not isinstance(rev, dict):
                 continue
             text_parts = []
             if rev.get('pros'):
-                text_parts.append(f"Плюсы: {rev['pros']}")
+                text_parts.append(f"<PRO> {rev['pros']}")
             if rev.get('cons'):
-                text_parts.append(f"Минусы: {rev['cons']}")
+                text_parts.append(f"<CON> {rev['cons']}")
             if not text_parts:
                 text_parts.append(rev.get('text', ''))
             full_text = " ".join(text_parts).strip()
             if full_text:
-                reviews_for_llm.append({'text': full_text})
-        if reviews_for_llm:
-            print(f"DEBUG: отправляем в LLM {len(reviews_for_llm)} отзывов")
+                formatted.append({'text': full_text})
+        if formatted:
+            api_url = os.getenv('ROBERTA_API_URL')
+            api_key = os.getenv('ROBERTA_API_KEY')
+            if api_url and api_key:
+                print(f"DEBUG: отправляем в RoBERTa {len(formatted)} отзывов")
+                try:
+                    reviews_llm_summary = analyze_reviews_with_roberta(formatted, api_url, api_key, inn)
+                    print(f"DEBUG: RoBERTa вернул {reviews_llm_summary}")
+                except Exception as e:
+                    print(f"ERROR in RoBERTa: {e}")
+                    reviews_llm_summary = None
+            else:
+                print("⚠️ Отсутствуют переменные окружения для RoBERTa API")
+    elif ENABLE_LLM and reviews_for_llm:
+        formatted = []
+        for rev in reviews_for_llm:
+            if not isinstance(rev, dict):
+                continue
+            text_parts = []
+            if rev.get('pros'):
+                text_parts.append(f"<PRO> {rev['pros']}")
+            if rev.get('cons'):
+                text_parts.append(f"<CON> {rev['cons']}")
+            if not text_parts:
+                text_parts.append(rev.get('text', ''))
+            full_text = " ".join(text_parts).strip()
+            if full_text:
+                formatted.append({'text': full_text})
+        if formatted:
+            print(f"DEBUG: отправляем в GigaChat {len(formatted)} отзывов")
             try:
-                reviews_llm_summary = analyze_reviews_with_llm(reviews_for_llm)
-                print(f"DEBUG: LLM вернул {reviews_llm_summary}")
+                reviews_llm_summary = analyze_reviews_with_llm(formatted, os.getenv('GCH_AUTH_KEY'))
+                print(f"DEBUG: GigaChat вернул {reviews_llm_summary}")
             except Exception as e:
-                print(f"ERROR in LLM: {e}")
-                import traceback
-                traceback.print_exc()
+                print(f"ERROR in GigaChat: {e}")
                 reviews_llm_summary = None
     else:
-        if not ENABLE_LLM:
-            print("LLM анализ отключён (ENABLE_LLM=False)")
+        if not ENABLE_LLM and not ENABLE_ROBERTA:
+            print("LLM анализ отключён (ENABLE_LLM=0 и ENABLE_ROBERTA=0)")
 
     return {
         'rating': final_rating,
         'count': final_count,
         'last_date': final_last_date.strftime('%d.%m.%Y') if final_last_date else None,
-        'reviews': sorted_reviews,
+        'reviews': all_sorted[:10],   # возвращаем топ-10 для отображения на UI
         'llm_summary': reviews_llm_summary
     }
 
@@ -477,6 +512,84 @@ def calculate_reviews_score(agg):
 
     return score, details
 
+def calculate_reviews_score_from_llm(llm_summary):
+    """
+    Рассчитывает НАДЁЖНОСТЬ отзывов (0-100) на основе трёх аспектов.
+    Поддерживает ключи 'Льготы' или 'Соцпакет'.
+    """
+    WEIGHT_TONE = 36.67
+    WEIGHT_DELAY = 36.67
+    WEIGHT_BENEFITS = 26.66
+
+    def aspect_to_reliability(value):
+        if value is None:
+            return 50.0
+        return (value + 1) / 2 * 100
+
+    tone = aspect_to_reliability(llm_summary.get('Общая тональность'))
+    delay = aspect_to_reliability(llm_summary.get('Задержки з/п'))
+    # Пробуем взять 'Льготы' или 'Соцпакет'
+    benefits_val = llm_summary.get('Льготы')
+    if benefits_val is None:
+        benefits_val = llm_summary.get('Соцпакет')
+    benefits = aspect_to_reliability(benefits_val)
+
+    reliability = (tone * WEIGHT_TONE + delay * WEIGHT_DELAY + benefits * WEIGHT_BENEFITS) / 100
+    return round(reliability, 1)
+
+
+def analyze_reviews_with_roberta(reviews_list, api_url, api_key, inn):
+    """
+    Отправляет список отзывов в API RoBERTa и возвращает агрегированные оценки.
+    reviews_list: список словарей, каждый с ключом 'text' (содержит полный отзыв с <PRO> и <CON>)
+    Возвращает словарь с ключами: 'Общая тональность', 'Задержки з/п', 'Соцпакет'
+    """
+    if not reviews_list:
+        return None
+
+    # Преобразуем в формат, ожидаемый API: каждый элемент должен содержать поле 'review'
+    payload_data = []
+    for rev in reviews_list:
+        # Берём текст отзыва (уже должен быть в формате с <PRO> и <CON>)
+        review_text = rev.get('text', '')
+        if not review_text:
+            continue
+        payload_data.append({
+            'review': review_text,
+            'business_id': inn  # для агрегации
+        })
+
+    if not payload_data:
+        return None
+
+    # Формируем payload для агрегированного ответа
+    payload = {
+        "data": payload_data,
+        "aggregate": True,          # получаем средние по business_id
+        "business_id_key": "business_id"
+    }
+
+    try:
+        response = requests.post(
+            api_url,
+            json=payload,
+            headers={"X-API-Key": api_key},
+            timeout=(10, 60)  # (connection timeout, read timeout)
+        )
+        response.raise_for_status()
+        result = response.json().get('result')
+        if result and isinstance(result, dict):
+            # Берём первый (и единственный) ключ и возвращаем его значение
+            first_key = next(iter(result), None)
+            if first_key:
+                return result[first_key]
+        print("⚠️ Неожиданный ответ от RoBERTa API:", result)
+        return None
+    except Exception as e:
+        print(f"❌ Ошибка при вызове RoBERTa API: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
 
 # =============================================
 # ОСНОВНАЯ ФУНКЦИЯ ПРОВЕРКИ
@@ -546,23 +659,26 @@ def check_company(inn, session_id, report_number):
 
     reviews_agg = aggregate_reviews(inn, name_variants)
     reviews_llm_summary = None
+    reviews_score = 50   # по умолчанию нейтральный риск
+    reviews_details = []
+    reviews_message = None
 
     if reviews_agg is None:
-        # Компания не найдена на сайтах отзывов
-        reviews_score = 50
-        reviews_details = []
         reviews_message = "Отзывы о компании не найдены"
     else:
         if reviews_agg.get('count', 0) == 0:
-            # Карточка есть, но отзывов нет
-            reviews_score = 50
-            reviews_details = []
             reviews_message = "На сайте найдена карточка компании, но отзывы отсутствуют"
         else:
-            # Есть отзывы, считаем обычный скор
-            reviews_score, reviews_details = calculate_reviews_score(reviews_agg)
-            reviews_message = None
+            # Берём LLM-анализ из агрегированных отзывов
             reviews_llm_summary = reviews_agg.get('llm_summary')
+            if reviews_llm_summary and isinstance(reviews_llm_summary, dict):
+                # Рассчитываем скор на основе LLM
+                reviews_score = calculate_reviews_score_from_llm(reviews_llm_summary)
+                reviews_message = None
+            else:
+                # Если LLM не дал результата (например, отключён или ошибка), падаем на старую логику
+                reviews_score, reviews_details = calculate_reviews_score(reviews_agg)
+                reviews_message = "Анализ отзывов временно недоступен, использована базовая оценка"
 
     total_score = 0.5 * fin_norm + 0.1 * bus_norm + 0.1 * legal_norm + 0.3 * reviews_score
 
